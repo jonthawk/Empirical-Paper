@@ -219,9 +219,10 @@ class Moments:
                     cD[q][j] = cD[j][q] #Fill by sym.
         return cD
 
-    def simulate_derivs(self, mkt):
-        #Compute delta from the data
-        delta = self.find_delta(mkt)
+    def simulate_derivs(self, delta, mkt):
+        """Takes 'true' delta and market,
+           Returns matrix of share/price derivatives
+        """
                     
         totals = np.zeros(self.J+1)
         for i in range(self.NS):
@@ -230,6 +231,44 @@ class Moments:
         
         return derivs
     
+    def make_Delta(self, delta, mkt):
+        """Takes a market
+           Returns the Delta matrix, where 
+           Delta_jr = -ds_r/dp_j if r, j are produced by the same firm
+                    = 0 otherwise
+           NB: Delta is JxJ matrix. We omit the OO since it does not enter
+               into the FOCs of any of the firms. We eventually need to invert
+               Delta, so we cannot have this column of zeros
+        """
+        derivs = self.simulate_derivs(delta, mkt)
+        Delta = np.zeros((self.J, self.J))
+
+        for firm in self.ownership:
+            for j in firm: #Iterate through all products owned by firm
+                for r in firm:
+                    #j-1 'trims' the first column and row
+                    Delta[j-1][r-1] = -derivs[j][r]
+        return Delta
+
+
+    def find_markups(self, mkt):
+        """Takes a market,
+           Returns the J-vector of markups
+
+           -Potential bug: The markups seem very, very large. 
+            Worse, they imply negative MC, which doesn't make sense either...
+            
+        """
+        delta = self.find_delta(mkt)
+        
+        Delta  = self.make_Delta(delta, mkt)
+        #We trim the share of the OO
+        shares = self.simulate_shares(delta, mkt)[1:]
+
+        invD = np.linalg.inv(Delta)
+        b = np.dot(invD, shares)
+        return b
+        
         
 np.random.seed(0)
                                                          
@@ -240,7 +279,7 @@ v_params = []
 
 params = d_params+v_params+c_params
 
-prices = 10*np.random.rand(4,3) #4 markets, 2 products (+outside)
+prices = 100*np.random.rand(4,3) #4 markets, 2 products (+outside)
 shares = np.random.rand(4,3)
 shares = shares/shares.sum(axis=1)[:,None]
 
@@ -253,4 +292,4 @@ non_rand_chars = []
 foo = Moments(params, shares, prices, product_chars, cost_chars,
               ownership, non_rand_chars, NS=500)
 
-print(foo.simulate_derivs(0))    
+print(foo.find_markups(0))    
