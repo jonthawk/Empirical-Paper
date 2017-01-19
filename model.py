@@ -177,6 +177,8 @@ class Moments:
             
             if iter % 10 == 0:
                 print(iter, ": ", dist)
+        #Normalize d_OO = 0
+        delta0 = delta0 - delta0[0]
 
         return delta0 
 

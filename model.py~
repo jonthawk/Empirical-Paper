@@ -177,6 +177,12 @@ class Moments:
             
             if iter % 10 == 0:
                 print(iter, ": ", dist)
+        print(delta1)
+        delta0 = delta0 - delta0[0]
+        print(delta0)
+
+        print(self.simulate_shares(delta1, mkt) - self.simulate_shares(delta0, mkt))
+        
 
         return delta0 
 
@@ -254,8 +260,11 @@ class Moments:
     def find_markups(self, mkt):
         """Takes a market,
            Returns the J-vector of markups
+
+           -Potential bug: The markups seem very, very large. 
+            Worse, they imply negative MC, which doesn't make sense either...
+            
         """
-        
         delta = self.find_delta(mkt)
         
         Delta  = self.make_Delta(delta, mkt)
