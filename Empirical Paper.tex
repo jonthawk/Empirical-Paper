@@ -1,0 +1,114 @@
+\documentclass[12pt, oneside]{article}   	% use "amsart" instead of "article" for AMSLaTeX format
+\usepackage[margin= .75 in]{geometry}                		% See geometry.pdf to learn the layout options. There are lots.
+
+\geometry{letterpaper}                   		% ... or a4paper or a5paper or ... 
+
+%\geometry{landscape}                		% Activate for for rotated page geometry
+%\usepackage[parfill]{parskip}    		% Activate to begin paragraphs with an empty line rather than an indent
+\usepackage{graphicx}				% Use pdf, png, jpg, or eps with pdflatex; use eps in DVI mode
+								% TeX will automatically convert eps --> pdf in pdflatex		
+\usepackage{amssymb}
+\usepackage{amsmath}
+\usepackage{setspace}
+\usepackage{pdflscape}
+\usepackage{apacite}
+\linespread{1.6}
+
+%\setlength\parindent{0pt}
+
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\parderiv}[2]{ \frac{\partial {#1}}{\partial {#2}}}
+\newcommand{\gap}{\vspace{3mm}}
+\newcommand{\J}{\mathcal{J}}
+
+
+\title{\vspace{-3cm} Empirical Paper}
+\author{Jonathan Hawkins-Pierot}
+%\date{}		% Activate to display a given date or no date
+
+\begin{document}
+\maketitle
+\thispagestyle{empty}
+
+Things to do:
+
+\begin{enumerate}
+
+\item Get access to data
+
+\item Define outside option (and the market share)
+
+\item Define distribution of consumer characteristics ($P_{ns}$)
+
+
+\end{enumerate}
+
+\section*{Evaluation of $G_j(\theta, s^n, P_{ns})$, aka the moments}
+
+
+From the Section 6 of BLP
+
+\begin{enumerate}
+
+\item Estimate the market shares implied by the model via simulation
+
+\item Solve for the vector of demand unobservables (i.e. $\xi(\theta, s^n, P_{ns})$) implied by the simulated and observed market shares
+
+\item Calculate the cost side unobservables $\omega(\theta, s^n, P_{ns})$, from the difference between price and the markups computed from the shares
+
+\item Calculate the optimal instruments and interact them with the computed cost and demand side unobservables to produce $G_j(\theta, s^n, P_{ns})$ 
+
+\end{enumerate}
+
+\subsection{Estimating Market Shares}
+
+To obtain the market share, it is useful to proceed in two stages. First, we condition on consumer characteristics and integrate out over the extreme value deviates to obtain the conditional market shares:
+
+$$f_j(\nu)i, \delta, p, x, \theta) = \frac{ e^{\delta_j + \mu(x_j, p_j, \nu_i, \theta_2)}}{1 + \sum_{j=1}^J e^{\delta_j +\mu(x_j, p_j, \nu_i, \theta_2)}} $$
+
+Then we can integrate this to get the market shares conditional only on product characteristics:
+
+$$s_j(p, x, \xi, \theta, P_0) = \int f_j(\nu_i, \delta(x, p, \xi), p, x, \theta)P_0(d\nu) \approx \frac{1}{ns} \sum_{i=1}^{ns} f_j(\nu_i, \delta, p, x, \theta)$$
+where $\nu_i, i \in \{1, ..., ns\}$ are iid draws from $P_0$. 
+
+Integrating out $\epsilon$ analytically reduces the variance of the estimator and ensures that the simulated market shares are positive, sum to one, and are smooth functions of their arguments. 
+
+We can further reduce the variance by using importance sampling. We will not implement this on the first pass, but might if there is enough time. 
+
+\subsection{Demand Unobservables}
+
+Recall that $\delta$ solves the nonlinear system $s^n = s(p, x, \delta, P_{ns}, \theta)$, or:
+$$\delta = \delta + \ln(s^n) - \ln(s(p, x, \delta, P_{ns};\theta)$$
+which (with some proofs in the appendix) gives us a contraction mapping with modulus less than one. Thus, we can solve for $\delta$ recursively by iterating.
+
+Given $\delta_j(\theta, s, P)$, we easily solve for the demand-side unobservable:
+$$\xi_j(\theta, s, P) = \delta_j(\theta, s, P) - x_j \beta$$
+
+\subsection{Cost Unobservables}
+
+First, we solve for the markup using Nash pricing. This requires the derivatives of market share with respect to price:
+
+$$\parderiv{s_j(p, x, \xi, \theta, P_0)}{p_j} = \int f_j ( 1 - f_j) \parderiv{\mu_{ij}}{p_j} P_0(d\nu)$$
+
+$$\parderiv{s_j(p, x, \xi, \theta, P_0)}{p_q} = \int -f_j f_q \parderiv{\mu_{ij}}{p_q} P_0(d\nu)$$
+
+Any product produced by firm $f$, i.e. any $j \in \J_f$ must have a price $p_j$ that satisfies the FOCs:
+
+$$s_j(p,x,\xi ; \theta) + \sum_{r \in \J_f} (p_r - mc_r) \parderiv{s_r}{p_j} = 0 $$
+
+To obtain the price-cost markups $(p_j - mc_j)$, define a $J\times J$ matrix $\Delta$ such that:
+$$\Delta_{jr} = \begin{cases} -\parderiv{s_r}{p_j}, & \text{if $r$ and $j$ are produced by the same firm} \\
+0,  & \text{otherwise}
+\end{cases}$$
+
+Then prices are given by $p = mc + \Delta^{-1} s(p, x, \xi ; \theta)$, and the cost unobservable is:
+
+$$b(p, x, \xi ; \theta) = \Delta^{-1} s(p, x, \xi ; \theta)$$
+
+\subsection{Optimal instruments and interaction}
+
+
+
+\end{document}  
+
