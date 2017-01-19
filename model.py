@@ -27,6 +27,19 @@ class Moments:
          Note: It seems like this ought to be the number of 
            consumers sampled times S, the # of simulations. 
            However, I'm not sure it matters... May revisit...
+    ++++++++
+    - We need to consider how to think about price sensitivity.
+      in BLP log specification, price/share derivative has a alpha/(y - p) term
+      When y is significantly larger than p (as in the case of beer and other 
+      retail products), this means that alpha must be extremely large, otherwise
+      consumers just don't care about prices at all... It's not clear whether this
+      is actually problematic (alpha = 1000?) but super small ds/dp implies super
+      large markups - possibly implying negative MC, which is bad! 
+
+    - Problem? - alpha can't go above about 65, otherwise mu becomes large 
+      and exp(mu) -> \inf, everything explodes. 
+
+
     """
 
     def __init__(self, params,                  
@@ -78,6 +91,7 @@ class Moments:
         Under this specification, len(d_params)=self.K
         We hold y_i fixed at 50,233, i.e. median income in 2007
         The nu_i is an array of self.K standard normal RVs
+        
         """
 
         P0 = np.random.normal(size=(self.T, self.NS, self.K+1))
@@ -121,7 +135,7 @@ class Moments:
         mu = [ (self.d_params[0]*np.log(nu[0] - self.prices[mkt][j]) +
                 np.dot(self.prod_chars[j], nu[1:])) for j in range(self.J)]
         mu.insert(0,0) #Outside option is 0
-
+        
         D = [(delta[j] + mu[j]) for j in range(self.J+1)]
         expD = np.exp(D)
         denom = np.sum(expD)
@@ -150,13 +164,6 @@ class Moments:
         """
 
         delta1 = delta + np.log(self.mkt_shares[mkt]) - np.log(self.simulate_shares(delta, mkt))
-#        print("mkt_shares: ", self.mkt_shares[mkt])
-#        print("sim_shares: ", self.simulate_shares(delta, mkt))
-#        print(np.log(self.mkt_shares[mkt]) - np.log(self.simulate_shares(delta, mkt)))
-
-
-#        print(delta1)
-#        delta1[0] = 0
         return delta1
                                                           
     def find_delta(self, mkt, tol=1e-4, max_iter=500):
@@ -252,14 +259,12 @@ class Moments:
                     Delta[j-1][r-1] = -derivs[j][r]
         return Delta
 
-
     def find_markups(self, mkt):
         """Takes a market,
            Returns the J-vector of markups
 
            -Potential bug: The markups seem very, very large. 
             Worse, they imply negative MC, which doesn't make sense either...
-            
         """
         delta = self.find_delta(mkt)
         
@@ -270,18 +275,20 @@ class Moments:
         invD = np.linalg.inv(Delta)
         b = np.dot(invD, shares)
         return b
+
+
         
         
 np.random.seed(0)
                                                          
 #d_params  = [  0, 0, 0, 0, 0, 0] 
-d_params = [0.1, 1, 1, 1, 1, 1]    
+d_params = [60, 1, 1, 1, 1, 1]    
 c_params = []
 v_params = []
 
 params = d_params+v_params+c_params
 
-prices = 100*np.random.rand(4,3) #4 markets, 2 products (+outside)
+prices = 100*np.random.rand(4,3)+5 #4 markets, 2 products (+outside)
 shares = np.random.rand(4,3)
 shares = shares/shares.sum(axis=1)[:,None]
 
@@ -292,6 +299,6 @@ ownership = [[1], [2]]
 non_rand_chars = []
 
 foo = Moments(params, shares, prices, product_chars, cost_chars,
-              ownership, non_rand_chars, NS=500)
+              ownership, non_rand_chars, NS=1000)
 
 print(foo.find_markups(0))    
