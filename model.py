@@ -1,8 +1,6 @@
 """
 This file contains a "Moments" class.
 Its purpose is to compute the moments G_j(\theta, S^n, P_ns)
-
-
 """
 
 import numpy as np
@@ -236,7 +234,7 @@ class Moments:
 np.random.seed(0)
                                                          
 #d_params  = [  0, 0, 0, 0, 0, 0] 
-d_params = [0.7, 1, 1, 1, 1, 1]    
+d_params = [0.1, 1, 1, 1, 1, 1]    
 c_params = []
 v_params = []
 

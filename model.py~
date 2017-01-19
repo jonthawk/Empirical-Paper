@@ -1,8 +1,6 @@
 """
 This file contains a "Moments" class.
 Its purpose is to compute the moments G_j(\theta, S^n, P_ns)
-
-
 """
 
 import numpy as np
@@ -164,23 +162,6 @@ class Moments:
     def find_delta(self, mkt, tol=1e-4, max_iter=500):
         """Iterates contraction mapping until we find delta for market mkt"""
 
-        """POTENTIAL BUG: For some seeds, this does not converge. The contraction
-           mapping 'gets stuck' early and the distance does not decrease further
-
-           -Probably a problem with the fake data used to estimate the model,
-            as opposed to model itself. When data was generated with 'Bad seed' = 0
-            Model was initialized with 1000 diff. seeds - contraction failed for all
-            When data was gen. with 'Good Seed' = 1, contraction succeeded for all 1000
-            
-           -The problem is sufficiently widespread 
-           (Seeds 0-25 are "bad" when random prices are 10x a U[0,10]) that
-            this problem deserves deeper attention.
-
-           -Problem seems to originate with setting delta1[0]=0... When the contraction 
-            'gets stuck,' it is because the final two elements of ln(s^n) - ln(s(delta))
-            are equal. So, they move together... 
-            """
-
         delta0 = np.zeros(self.J+1)
         delta1 = np.ones(self.J+1)
 
@@ -250,7 +231,7 @@ class Moments:
         return derivs
     
         
-#np.random.seed(22)
+np.random.seed(0)
                                                          
 #d_params  = [  0, 0, 0, 0, 0, 0] 
 d_params = [0.7, 1, 1, 1, 1, 1]    
