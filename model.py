@@ -9,7 +9,8 @@ import statsmodels.api as sm
 
 class Moments:
     """A market is initialized with:
-    1) params: Structural Parameters to be  
+    1) params: Structural Parameters to be estimated 
+       - Price sensitivity and variance of taste params 
     2) market_shares: Contains observed market shares
         market_shares[market][product]
     3) prices: Contains observed prices
@@ -54,7 +55,7 @@ class Moments:
                  market_shares, prices, 
                  product_chars, cost_chars, 
                  ownership, non_rand_chars,
-                 P0='standard', NS=500):
+                 P0='normals', NS=500):
 
         #Number of markets
         self.T = len(market_shares)
@@ -68,15 +69,7 @@ class Moments:
         self.C = len(cost_chars[0])
 
         #Coefficients on K product chars and price
-        self.d_params   = params[0:self.K+1]
-        #Variances of Random Coefficients
-        if P0 != 'standard': #Here, there are also K variances to estimate
-            self.v_params = params[(self.K+1):(2*self.K + 1)]
-            #Coefficients on cost_chars
-            self.c_params = params[2*self.K+1:]
-        else:
-            self.c_params = params[self.K+1:]
-
+        self.params     = params
         self.mkt_shares = market_shares
         self.prices     = prices
         self.prod_chars = product_chars
@@ -120,7 +113,18 @@ class Moments:
         We again hold y_i fixed at 50,233
         The nu_i is an array of self.K N(0,sigma_k)
         """
-        return None
+
+        P0 = np.array([np.random.normal(scale=self.params[k], size=(self.NS, self.T))
+              for k in range(self.K+1)])
+        P0 = np.swapaxes(P0, 0, 2)
+        
+        for t in range(self.T):
+            for i in range(self.NS):
+                P0[t][i][0] = 50233
+                for char in self.non_rand_chars:
+                    P0[t][i][char] = 0
+        
+        return P0
 
     def draw_full(self):
         """
@@ -140,7 +144,7 @@ class Moments:
 
         cond_probs = np.zeros(self.J+1)
         
-        mu = [ (self.d_params[0]*np.log(nu[0] - self.prices[mkt][j]) +
+        mu = [ (self.params[0]*np.log(nu[0] - self.prices[mkt][j]) +
                 np.dot(self.prod_chars[j], nu[1:])) for j in range(self.J)]
         mu.insert(0,0) #Outside option is 0
         
@@ -212,8 +216,6 @@ class Moments:
             delta = self.find_delta(mkt)[1:]
             Y.extend(delta)
             X.extend(self.prod_chars) #same in all mkts - ineffiencent
-
-        print("len Y: ", len(Y), "X: ", len(X), len(X[0]))
         
         reg = sm.OLS(Y,X).fit()
         
@@ -306,13 +308,7 @@ class Moments:
         
 np.random.seed(0)
                                                          
-#d_params  = [  0, 0, 0, 0, 0, 0] 
-d_params = [60, 1, 1, 1, 1, 1]    
-c_params = []
-v_params = []
-
-params = d_params+v_params+c_params
-
+params = [60, 1, 1, 1, 1, 1]    
 prices = 100*np.random.rand(4,3)+5 #4 markets, 2 products (+outside)
 prices[0] = 0 #OO has price normalized to 0
 shares = np.random.rand(4,3)
@@ -326,5 +322,7 @@ non_rand_chars = []
 
 foo = Moments(params, shares, prices, product_chars, cost_chars,
               ownership, non_rand_chars, NS=1000)
+
+foo.draw_normals()
 
 print(foo.find_demand_unobs())    
