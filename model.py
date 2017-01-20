@@ -4,6 +4,8 @@ Its purpose is to compute the moments G_j(\theta, S^n, P_ns)
 """
 
 import numpy as np
+import statsmodels.api as sm
+
 
 class Moments:
     """A market is initialized with:
@@ -38,6 +40,12 @@ class Moments:
 
     - Problem? - alpha can't go above about 65, otherwise mu becomes large 
       and exp(mu) -> \inf, everything explodes. 
+
+    - Need to resolve how to think about OO. OO has no price, share defined implicitly
+      I think we prefer to add OO to the data, with 0 price and 0 for all characteristics
+      In fact, its characteristics are irrelevant because in cond_share function, mu[0]=0 
+      and delta[0] is also normalized to 0 in the end. The only remaining thing is to 
+      remember to trim OO when doing various manipulations (e.g. calculating markups)
 
 
     """
@@ -189,17 +197,30 @@ class Moments:
 
         return delta0 
 
-    def find_demand_unobs(self, mkt):
-        """This function takes a market index,
-           Returns the J+1 vector of demand unobservables,
-           where xi[0] is normalized to 0"""
+    def find_demand_unobs(self):
+        """This function computes mean tastes (beta) and demand unobservables (xi),
+        """
 
-        xB = [ (np.dot(self.prod_chars[j], self.d_params[1:])) for j in range(self.J)]
-        xB.insert(0,0) #Outside option is 0        
-    
-        delta = self.find_delta(mkt)
-        xi = delta - xB
-        return xi
+        """Useful optimization: deltas for all markets are used here and also
+           in cost unobservables. Instead of computing twice, could add them as input. 
+        """
+
+        #delta_jt, will be independent var. 
+        Y = []
+        X = []
+        for mkt in range(self.T):
+            delta = self.find_delta(mkt)[1:]
+            Y.extend(delta)
+            X.extend(self.prod_chars) #same in all mkts - ineffiencent
+
+        print("len Y: ", len(Y), "X: ", len(X), len(X[0]))
+        
+        reg = sm.OLS(Y,X).fit()
+        
+        beta = reg.params
+        xi   = reg.resid
+        
+        return beta, xi
         
     """We've finished steps 1) and 2) of the evaluation of G, 
        Next, we have the functions which compute the cost-side unobservables"""
@@ -263,8 +284,11 @@ class Moments:
         """Takes a market,
            Returns the J-vector of markups
 
-           -Potential bug: The markups seem very, very large. 
-            Worse, they imply negative MC, which doesn't make sense either...
+           -Potential bug: The markups are very, very large.
+            Likely a problem stemming from the alpha/(y-p) term,
+            where y-p is large, making price sensitivity low for 
+            reasonable alpha. Possible solution is to replace this
+            with -alpha*p. 
         """
         delta = self.find_delta(mkt)
         
@@ -277,7 +301,8 @@ class Moments:
         return b
 
 
-        
+
+
         
 np.random.seed(0)
                                                          
@@ -289,6 +314,7 @@ v_params = []
 params = d_params+v_params+c_params
 
 prices = 100*np.random.rand(4,3)+5 #4 markets, 2 products (+outside)
+prices[0] = 0 #OO has price normalized to 0
 shares = np.random.rand(4,3)
 shares = shares/shares.sum(axis=1)[:,None]
 
@@ -301,4 +327,4 @@ non_rand_chars = []
 foo = Moments(params, shares, prices, product_chars, cost_chars,
               ownership, non_rand_chars, NS=1000)
 
-print(foo.find_markups(0))    
+print(foo.find_demand_unobs())    
