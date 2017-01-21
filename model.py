@@ -8,10 +8,8 @@ Its purpose is to compute the moments G_j(\theta, S^n, P_ns)
      + We're using Hausman IVs, i.e. Prices in other mkts, following Nevo 2000 
      + Necessary changes include:
        1) Alter inputs for panel data,
-          b) List of Regions, with indices for cities in that region
+          b) List of Regions, with data for cities in that region
           c) 
-
-
 
    - Run IV reg for demand side, to get linear demand params
    - Do we have cost params? ... Make decision here...
@@ -28,6 +26,7 @@ Its purpose is to compute the moments G_j(\theta, S^n, P_ns)
 
 import numpy as np
 import statsmodels.api as sm
+import statsmodels.sandbox.regression.gmm as gmm
 
 
 class Moments:
@@ -97,6 +96,7 @@ class Moments:
         self.prices     = prices
         self.prod_chars = product_chars
         self.ownership  = ownership
+        self.regions    = regions
         self.non_rand_chars = non_rand_chars
         self.NS = NS
 
@@ -132,6 +132,30 @@ class Moments:
         """
 
         return None
+
+    def make_IVs(self, t, mkt, j):
+        """Takes a time, a market, and a product j,
+           Returns vector of all prices of j in the same region as mkt, except mkt
+        """
+
+        z = []
+
+        #Find region R that market is in
+        for region in self.regions:
+            if mkt in region:
+                R = region
+                break
+        for m in region:
+            if m == mkt:
+                continue
+            else:
+                z.append(self.prices[t][m][j+1]) 
+
+        z.extend(self.prod_chars[j])
+        return z
+        
+        
+
 
     def cond_choice_prob(self, delta, nu, t, mkt):
         """
@@ -218,11 +242,18 @@ class Moments:
         for t in range(self.T):
             for mkt in range(self.M):
                 delta = self.find_delta(t, mkt)[1:]
-                Y.extend(delta)
-                X.extend(self.prod_chars) #same in all mkts - ineffiencent
-        
-        reg = sm.OLS(Y,X).fit()
-        
+                Y.extend(delta) #more efficient than appending below           
+                for j in range(self.J):
+                    x = np.append(self.prod_chars[j], self.prices[t][mkt][j+1])
+                    
+                    X.append(x)
+                    Z.append(self.make_IVs(t, mkt, j))
+
+        X = sm.add_constant(X)
+        Z = sm.add_constant(Z)
+        reg = gmm.IV2SLS(Y,X,Z).fit()
+#        print(reg.summary())
+
         beta = reg.params
         xi   = reg.resid
         
@@ -304,16 +335,23 @@ class Moments:
         b = np.dot(invD, shares)
         return b
 
+    
+
 
 np.random.seed(0)
 
 num_time = 2
-num_mkts = 3
+num_mkts = 4
 num_prod = 5                               
                           
 params = [0.1, 1, 1, 1, 1, 1]    
-prices = 100*np.random.rand(num_time, num_mkts, num_prod)+5 #4 markets, 2 products (+outside)
-prices[0] = 0 #OO has price normalized to 0
+prices = 100*np.random.rand(num_time, num_mkts, num_prod)+5 
+
+for t in range(num_time):
+    for m in range(num_mkts):
+        prices[t][m][0] = 0 #OO has price normalized to 0
+print(prices)
+
 shares = np.random.rand(num_time, num_mkts, num_prod)
 
 for t in range(num_time):
@@ -322,10 +360,11 @@ for t in range(num_time):
 product_chars = np.random.rand(num_prod-1,5)
 cost_chars = [ [ [ [] for j in range(num_prod)] for mkt in range(num_mkts)] for t in range(num_time)]
 
-ownership = [[0], [1,2,3], [4]]
-regions   = [[0,1], [2,3]]
+#In ownership, 0 index should not exist. 0 is to OO, and is owned by no firm
+ownership = [[1,2,3], [4]]
+regions   = [[0,1, 2,3]]
 
 foo = Moments(params, shares, prices, product_chars, cost_chars,
-              ownership, regions)
+              ownership, regions, NS=5)
 
-print(foo.find_markups(0,0))    
+print(foo.find_demand_unobs())    
