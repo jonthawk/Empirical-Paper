@@ -3,6 +3,21 @@ This file contains a "Moments" class.
 Its purpose is to compute the moments G_j(\theta, S^n, P_ns)
 """
 
+"""TODO: 
+
+   - Retool model for quasi-linear utility. 
+     This means that alpha will be like other taste parameters
+     It will enter linearly, consumers will have iid shocks to it
+
+   - Params is assumed to be length K+1, but if we have non-random characteristics,
+     this will result in indeterminacy... The variance params for non-rand chars
+     will not affect the moment condition, and this will cause problems. 
+     + SO CAUTION: While model can be expanded to have non-random chars, it does 
+       NOT currently have this capacity...
+
+"""
+
+
 import numpy as np
 import statsmodels.api as sm
 
@@ -10,7 +25,13 @@ import statsmodels.api as sm
 class Moments:
     """A market is initialized with:
     1) params: Structural Parameters to be estimated 
-       - Price sensitivity and variance of taste params 
+       - Variance of taste params, inc. price sensitivity
+       - Means of these params & cost params are not included
+         They are implied by the params which enter non-linearly,
+         and we recover them by IV regression.
+       - Note: params has length (K+1), that is, one variance param 
+         for each product characteristic and one for price. 
+
     2) market_shares: Contains observed market shares
         market_shares[market][product]
     3) prices: Contains observed prices
@@ -31,17 +52,8 @@ class Moments:
            consumers sampled times S, the # of simulations. 
            However, I'm not sure it matters... May revisit...
     ++++++++
-    - We need to consider how to think about price sensitivity.
-      in BLP log specification, price/share derivative has a alpha/(y - p) term
-      When y is significantly larger than p (as in the case of beer and other 
-      retail products), this means that alpha must be extremely large, otherwise
-      consumers just don't care about prices at all... It's not clear whether this
-      is actually problematic (alpha = 1000?) but super small ds/dp implies super
-      large markups - possibly implying negative MC, which is bad! 
-
-    - Problem? - alpha can't go above about 65, otherwise mu becomes large 
-      and exp(mu) -> \inf, everything explodes. 
-
+    - Since prices are so small relative to income, we assume quasi-linear utility
+      
     - Need to resolve how to think about OO. OO has no price, share defined implicitly
       I think we prefer to add OO to the data, with 0 price and 0 for all characteristics
       In fact, its characteristics are irrelevant because in cond_share function, mu[0]=0 
@@ -79,58 +91,31 @@ class Moments:
 
         #We draw the nu's for T*NS consumers
         #P0[consumer] = [y_i, nu^1_i, ... nu^K_i]
-        if P0 == "standard":
-            self.P0 = self.draw_standard()
-        elif P0 == "normals":
+        if P0 == "normals":
             self.P0 = self.draw_normals()
         elif P0 == "full":
             #y_i also varies, according to some emp. dist. 
             self.P0 = self.draw_full()
 
-    def draw_standard(self):
-        """
-        Under this specification, len(d_params)=self.K
-        We hold y_i fixed at 50,233, i.e. median income in 2007
-        The nu_i is an array of self.K standard normal RVs
-        
-        """
-
-        P0 = np.random.normal(size=(self.T, self.NS, self.K+1))
-        
-        #We set y_i to 50,233, and any characteristics
-        #without random coefficients get nu_k = 0
-        for t in range(self.T):
-            for i in range(self.NS):
-                P0[t][i][0] = 50233
-                for char in self.non_rand_chars:
-                    P0[t][i][char] = 0
-
-        return P0
-                
     def draw_normals(self):
         """
-        Under this specification,
-        We again hold y_i fixed at 50,233
-        The nu_i is an array of self.K N(0,sigma_k)
+        Under this specification:
+        The nu_i are a vector of K+1 independent N(0,sigma_k) RVs
+
+        Note: If we want non-rand chars, this function will need to be updated
         """
 
         P0 = np.array([np.random.normal(scale=self.params[k], size=(self.NS, self.T))
               for k in range(self.K+1)])
         P0 = np.swapaxes(P0, 0, 2)
         
-        for t in range(self.T):
-            for i in range(self.NS):
-                P0[t][i][0] = 50233
-                for char in self.non_rand_chars:
-                    P0[t][i][char] = 0
-        
         return P0
 
     def draw_full(self):
         """
         Under this specification,
-        We draw y_i randomly from an empirical distribution
-        The nu_i array is as in draw_normals
+        We might, for example, have covariance between taste shocks.
+        This would, of course, entail further modifications to, e.g. params. 
         """
 
         return None
@@ -141,11 +126,13 @@ class Moments:
         It returns the conditional choice probs for product j for 
         consumer i
         """
+        
+        """Note: We have quasi-linear utility (in money) - no wealth effects"""
 
         cond_probs = np.zeros(self.J+1)
         
-        mu = [ (self.params[0]*np.log(nu[0] - self.prices[mkt][j]) +
-                np.dot(self.prod_chars[j], nu[1:])) for j in range(self.J)]
+        mu = [ (-nu[0]*self.prices[mkt][j] +
+               np.dot(self.prod_chars[j], nu[1:])) for j in range(self.J)]
         mu.insert(0,0) #Outside option is 0
         
         D = [(delta[j] + mu[j]) for j in range(self.J+1)]
@@ -234,10 +221,14 @@ class Moments:
            to produce the matrix of s/p derivs
            """
 
+        """If we didn't have quasi-linear utility, Dmu would be more complex, leave infra. in place"""
+
         #F_j = cond. choice prob for product j
         F     = self.cond_choice_prob(delta, nu, mkt)
         #Dmu is the vector of derivatives of mu_ij w.r.t p_j
-        Dmu   = [-self.d_params[0]/(nu[0] - self.prices[mkt][j]) for j in range(self.J+1)]
+        #Note, this doesn't really make sense for the OO, but the derivs. for the OO
+        # are irrelevant anyway
+        Dmu   = [nu[0] for j in range(self.J+1)]
     
         #Initialize cond. derivatives matrix (J+1 products, counting OO)
         cD = np.zeros((self.J+1, self.J+1))
@@ -285,15 +276,9 @@ class Moments:
     def find_markups(self, mkt):
         """Takes a market,
            Returns the J-vector of markups
-
-           -Potential bug: The markups are very, very large.
-            Likely a problem stemming from the alpha/(y-p) term,
-            where y-p is large, making price sensitivity low for 
-            reasonable alpha. Possible solution is to replace this
-            with -alpha*p. 
         """
+
         delta = self.find_delta(mkt)
-        
         Delta  = self.make_Delta(delta, mkt)
         #We trim the share of the OO
         shares = self.simulate_shares(delta, mkt)[1:]
@@ -303,7 +288,7 @@ class Moments:
         return b
 
 
-
+print(np.random.normal(scale=0))
 
         
 np.random.seed(0)
