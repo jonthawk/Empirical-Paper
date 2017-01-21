@@ -4,13 +4,26 @@ Its purpose is to compute the moments G_j(\theta, S^n, P_ns)
 """
 
 """TODO: 
+   - Construct IVs. 
+     + We're using Hausman IVs, i.e. Prices in other mkts, following Nevo 2000 
+     + Necessary changes include:
+       1) Alter inputs for panel data,
+          b) List of Regions, with indices for cities in that region
+          c) 
 
-   - Retool model for quasi-linear utility. 
-     This means that alpha will be like other taste parameters
-     It will enter linearly, consumers will have iid shocks to it
+
+
+   - Run IV reg for demand side, to get linear demand params
+   - Do we have cost params? ... Make decision here...
+   - Brand-specific dummies, if possible (see Nevo 2000)
+
+   - Params is assumed to be length K+1, but if we have non-random characteristics,
+     this will result in indeterminacy... The variance params for non-rand chars
+     will not affect the moment condition, and this will cause problems. 
+     + SO CAUTION: While model can be expanded to have non-random chars, it does 
+       NOT currently have this capacity...
 
 """
-
 
 
 import numpy as np
@@ -24,6 +37,9 @@ class Moments:
        - Means of these params & cost params are not included
          They are implied by the params which enter non-linearly,
          and we recover them by IV regression.
+       - Note: params has length (K+1), that is, one variance param 
+         for each product characteristic and one for price. 
+
     2) market_shares: Contains observed market shares
         market_shares[market][product]
     3) prices: Contains observed prices
@@ -35,11 +51,12 @@ class Moments:
          May overlap with product chars
     6) ownership: Describes which products are owned by each firm
          ownership[firm] = list of product indices owned by firm
-    7) non_rand_chars: Contains indices of product characteristics
+    7) regions: Describes which mkts are in each region
+    8) non_rand_chars: Contains indices of product characteristics
          over which consumers have non_random tastes (to reduce params)
-    7) P0: Label giving instructions on how to generate a
+    9) P0: Label giving instructions on how to generate a
          distribution of consumers given demand_params
-    8) NS: The number of draws from P0, ("Consumers in the market") 
+    10) NS: The number of draws from P0, ("Consumers in the market") 
          Note: It seems like this ought to be the number of 
            consumers sampled times S, the # of simulations. 
            However, I'm not sure it matters... May revisit...
@@ -58,13 +75,15 @@ class Moments:
     def __init__(self, params,                  
                  market_shares, prices, 
                  product_chars, cost_chars, 
-                 ownership, non_rand_chars,
-                 P0='normals', NS=500):
+                 ownership, regions,
+                 non_rand_chars=[], P0='normals', NS=500):
 
-        #Number of markets
+        #Number of time periods
         self.T = len(market_shares)
+        #Number of markets (cities)
+        self.M = len(market_shares[0])
         #Number of products (not counting outside opt.)
-        self.J = len(market_shares[0])-1
+        self.J = len(market_shares[0][0])-1
         #Number of firms
         self.F = len(ownership)
         #Number of demand-relevant characteristics
@@ -83,62 +102,38 @@ class Moments:
 
         #We draw the nu's for T*NS consumers
         #P0[consumer] = [y_i, nu^1_i, ... nu^K_i]
-        if P0 == "standard":
-            self.P0 = self.draw_standard()
-        elif P0 == "normals":
+        if P0 == "normals":
             self.P0 = self.draw_normals()
         elif P0 == "full":
             #y_i also varies, according to some emp. dist. 
             self.P0 = self.draw_full()
 
-    def draw_standard(self):
-        """
-        Under this specification, len(d_params)=self.K
-        We hold y_i fixed at 50,233, i.e. median income in 2007
-        The nu_i is an array of self.K standard normal RVs
-        
-        """
-
-        P0 = np.random.normal(size=(self.T, self.NS, self.K+1))
-        
-        #We set y_i to 50,233, and any characteristics
-        #without random coefficients get nu_k = 0
-        for t in range(self.T):
-            for i in range(self.NS):
-                P0[t][i][0] = 50233
-                for char in self.non_rand_chars:
-                    P0[t][i][char] = 0
-
-        return P0
-                
     def draw_normals(self):
         """
-        Under this specification,
-        We again hold y_i fixed at 50,233
-        The nu_i is an array of self.K N(0,sigma_k)
+        Under this specification:
+        The nu_i are a vector of K+1 independent N(0,sigma_k) RVs
+        P0[Time][market][draw][char]
+
+        Note: If we want non-rand chars, this function will need to be updated
         """
 
-        P0 = np.array([np.random.normal(scale=self.params[k], size=(self.NS, self.T))
+
+        P0 = np.array([np.random.normal(scale=self.params[k], size=(self.M, self.NS, self.T))
               for k in range(self.K+1)])
-        P0 = np.swapaxes(P0, 0, 2)
-        
-        for t in range(self.T):
-            for i in range(self.NS):
-                for char in self.non_rand_chars:
-                    P0[t][i][char] = 0
-        
+        P0 = np.swapaxes(P0, 0, 3)
+
         return P0
 
     def draw_full(self):
         """
         Under this specification,
-        We draw y_i randomly from an empirical distribution
-        The nu_i array is as in draw_normals
+        We might, for example, have covariance between taste shocks.
+        This would, of course, entail further modifications to, e.g. params. 
         """
 
         return None
 
-    def cond_choice_prob(self, delta, nu, mkt):
+    def cond_choice_prob(self, delta, nu, t, mkt):
         """
         This function takes the J-vector of deltas and a K-vector nu_i
         It returns the conditional choice probs for product j for 
@@ -148,8 +143,8 @@ class Moments:
         """Note: We have quasi-linear utility (in money) - no wealth effects"""
 
         cond_probs = np.zeros(self.J+1)
-        
-        mu = [ (-self.params[0]*self.prices[mkt][j] +
+
+        mu = [ (-nu[0]*self.prices[t][mkt][j] +
                np.dot(self.prod_chars[j], nu[1:])) for j in range(self.J)]
         mu.insert(0,0) #Outside option is 0
         
@@ -160,9 +155,10 @@ class Moments:
         for j in range(self.J+1):
             cond_probs[j] = expD[j]/denom
             
+            
         return cond_probs
 
-    def simulate_shares(self, delta, mkt):
+    def simulate_shares(self, delta, t, mkt):
         """Takes delta, 
         Returns market shares implied by the model
         """
@@ -170,20 +166,19 @@ class Moments:
         totals = np.zeros(self.J+1)
         
         for i in range(self.NS):
-            totals = np.add(totals, self.cond_choice_prob(delta, self.P0[mkt][i], mkt))
+            totals = np.add(totals, self.cond_choice_prob(delta, self.P0[t][mkt][i], t, mkt))
         shares = totals/self.NS
         
         return shares
 
-    def delta_iterate(self, delta, mkt):
+    def delta_iterate(self, delta, t, mkt):
         """Takes delta
         Returns new delta (contraction mapping)
         """
-
-        delta1 = delta + np.log(self.mkt_shares[mkt]) - np.log(self.simulate_shares(delta, mkt))
+        delta1 = delta + np.log(self.mkt_shares[t][mkt]) - np.log(self.simulate_shares(delta, t, mkt))
         return delta1
                                                           
-    def find_delta(self, mkt, tol=1e-4, max_iter=500):
+    def find_delta(self, t, mkt, tol=1e-5, max_iter=500):
         """Iterates contraction mapping until we find delta for market mkt"""
 
         delta0 = np.zeros(self.J+1)
@@ -195,11 +190,11 @@ class Moments:
         while dist > tol and iter < max_iter:
             iter += 1
 
-            delta1 = self.delta_iterate(delta0, mkt)
+            delta1 = self.delta_iterate(delta0, t, mkt)
             dist = np.linalg.norm(delta0 - delta1)
             delta0 = delta1
             
-            if iter % 10 == 0:
+            if iter % 20 == 0:
                 print(iter, ": ", dist)
         #Normalize d_OO = 0
         delta0 = delta0 - delta0[0]
@@ -217,10 +212,14 @@ class Moments:
         #delta_jt, will be independent var. 
         Y = []
         X = []
-        for mkt in range(self.T):
-            delta = self.find_delta(mkt)[1:]
-            Y.extend(delta)
-            X.extend(self.prod_chars) #same in all mkts - ineffiencent
+        #Hausman instruments
+        Z = []
+
+        for t in range(self.T):
+            for mkt in range(self.M):
+                delta = self.find_delta(t, mkt)[1:]
+                Y.extend(delta)
+                X.extend(self.prod_chars) #same in all mkts - ineffiencent
         
         reg = sm.OLS(Y,X).fit()
         
@@ -232,7 +231,7 @@ class Moments:
     """We've finished steps 1) and 2) of the evaluation of G, 
        Next, we have the functions which compute the cost-side unobservables"""
 
-    def compute_cond_derivs(self, delta, nu, mkt):
+    def compute_cond_derivs(self, delta, nu, t, mkt):
         """This function takes nu and market index,
            Returns the matrix of cond. share/price derivatives
            This function is then numerically integrated (over nu)
@@ -242,9 +241,11 @@ class Moments:
         """If we didn't have quasi-linear utility, Dmu would be more complex, leave infra. in place"""
 
         #F_j = cond. choice prob for product j
-        F     = self.cond_choice_prob(delta, nu, mkt)
+        F     = self.cond_choice_prob(delta, nu, t, mkt)
         #Dmu is the vector of derivatives of mu_ij w.r.t p_j
-        Dmu   = [-self.d_params[0] for j in range(self.J+1)]
+        #Note, this doesn't really make sense for the OO, but the derivs. for the OO
+        # are irrelevant anyway
+        Dmu   = [nu[0] for j in range(self.J+1)]
     
         #Initialize cond. derivatives matrix (J+1 products, counting OO)
         cD = np.zeros((self.J+1, self.J+1))
@@ -258,19 +259,19 @@ class Moments:
                     cD[q][j] = cD[j][q] #Fill by sym.
         return cD
 
-    def simulate_derivs(self, delta, mkt):
+    def simulate_derivs(self, delta, t, mkt):
         """Takes 'true' delta and market,
            Returns matrix of share/price derivatives
         """
                     
         totals = np.zeros(self.J+1)
         for i in range(self.NS):
-            totals = np.add(totals, self.compute_cond_derivs(delta, self.P0[mkt][i], mkt))
+            totals = np.add(totals, self.compute_cond_derivs(delta, self.P0[t][mkt][i], t, mkt))
         derivs = totals/self.NS
         
         return derivs
     
-    def make_Delta(self, delta, mkt):
+    def make_Delta(self, delta, t, mkt):
         """Takes a market
            Returns the Delta matrix, where 
            Delta_jr = -ds_r/dp_j if r, j are produced by the same firm
@@ -279,51 +280,54 @@ class Moments:
                into the FOCs of any of the firms. We eventually need to invert
                Delta, so we cannot have this column of zeros
         """
-        derivs = self.simulate_derivs(delta, mkt)
+        derivs = self.simulate_derivs(delta, t, mkt)
         Delta = np.zeros((self.J, self.J))
-
         for firm in self.ownership:
             for j in firm: #Iterate through all products owned by firm
                 for r in firm:
                     #j-1 'trims' the first column and row
+                    Delta[j-1][r-1] = 1
                     Delta[j-1][r-1] = -derivs[j][r]
         return Delta
 
-    def find_markups(self, mkt):
+    def find_markups(self, t, mkt):
         """Takes a market,
            Returns the J-vector of markups
         """
 
-        delta = self.find_delta(mkt)
-        Delta  = self.make_Delta(delta, mkt)
+        delta = self.find_delta(t, mkt)
+        Delta  = self.make_Delta(delta, t, mkt)
         #We trim the share of the OO
-        shares = self.simulate_shares(delta, mkt)[1:]
+        shares = self.simulate_shares(delta, t, mkt)[1:]
 
         invD = np.linalg.inv(Delta)
         b = np.dot(invD, shares)
         return b
 
 
-print(np.random.normal(scale=0))
-
-        
 np.random.seed(0)
-                                                         
-params = [60, 1, 1, 1, 1, 1]    
-prices = 100*np.random.rand(4,3)+5 #4 markets, 2 products (+outside)
+
+num_time = 2
+num_mkts = 3
+num_prod = 5                               
+                          
+params = [0.1, 1, 1, 1, 1, 1]    
+prices = 100*np.random.rand(num_time, num_mkts, num_prod)+5 #4 markets, 2 products (+outside)
 prices[0] = 0 #OO has price normalized to 0
-shares = np.random.rand(4,3)
-shares = shares/shares.sum(axis=1)[:,None]
+shares = np.random.rand(num_time, num_mkts, num_prod)
 
-product_chars = np.random.rand(2,5)
-cost_chars = [ [ [] for j in range(3)] for t in range(4)]
+for t in range(num_time):
+    shares[t] = shares[t]/shares[t].sum(axis=1)[:,None]
 
-ownership = [[1], [2]]
-non_rand_chars = []
+print(shares)
+
+product_chars = np.random.rand(num_prod-1,5)
+cost_chars = [ [ [ [] for j in range(num_prod)] for mkt in range(num_mkts)] for t in range(num_time)]
+
+ownership = [[1], [2,3,4], [5]]
+regions   = [[1,2], [3,4]]
 
 foo = Moments(params, shares, prices, product_chars, cost_chars,
-              ownership, non_rand_chars, NS=1000)
+              ownership, regions)
 
-foo.draw_normals()
-
-print(foo.find_demand_unobs())    
+print(foo.find_markups(0,0))    
