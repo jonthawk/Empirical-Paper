@@ -4,16 +4,15 @@ Its purpose is to compute the moments G_j(\theta, S^n, P_ns)
 """
 
 """TODO: 
-   - Construct IVs. 
-     + We're using Hausman IVs, i.e. Prices in other mkts, following Nevo 2000 
-     + Necessary changes include:
-       1) Alter inputs for panel data,
-          b) List of Regions, with data for cities in that region
-          c) 
+   - Do we have cost params?
+   - What to do for the cost-side? Help help help...
+     Maybe we just run it without IVs, and check to see if we can recover. Time to move on...
 
-   - Run IV reg for demand side, to get linear demand params
-   - Do we have cost params? ... Make decision here...
    - Brand-specific dummies, if possible (see Nevo 2000)
+     + If we do brand specific dummies, we need minimum-distance procedure to identify
+       all params. Chamberlain 1982... Maybe not...
+  
+
 
    - Params is assumed to be length K+1, but if we have non-random characteristics,
      this will result in indeterminacy... The variance params for non-rand chars
@@ -95,6 +94,7 @@ class Moments:
         self.mkt_shares = market_shares
         self.prices     = prices
         self.prod_chars = product_chars
+        self.cost_chars = cost_chars
         self.ownership  = ownership
         self.regions    = regions
         self.non_rand_chars = non_rand_chars
@@ -150,12 +150,11 @@ class Moments:
                 continue
             else:
                 z.append(self.prices[t][m][j+1]) 
-
+    
         z.extend(self.prod_chars[j])
+        z.extend(self.cost_chars[j])
+        
         return z
-        
-        
-
 
     def cond_choice_prob(self, delta, nu, t, mkt):
         """
@@ -178,8 +177,7 @@ class Moments:
         
         for j in range(self.J+1):
             cond_probs[j] = expD[j]/denom
-            
-            
+                        
         return cond_probs
 
     def simulate_shares(self, delta, t, mkt):
@@ -325,8 +323,8 @@ class Moments:
         """Takes a market,
            Returns the J-vector of markups
         """
-
-        delta = self.find_delta(t, mkt)
+        
+        delta  = self.find_delta(t, mkt)
         Delta  = self.make_Delta(delta, t, mkt)
         #We trim the share of the OO
         shares = self.simulate_shares(delta, t, mkt)[1:]
@@ -335,8 +333,45 @@ class Moments:
         b = np.dot(invD, shares)
         return b
 
+    def find_cost_unobs(self):
+        """This function computes cost parameters and unobservables
+           using Hausman instruments?"""
+
+        """For the sake of time, there will be no cost-shifters.
+           That is, omega = ln(p - b(p,x,xi;theta)). Something to ask about.
+           for now, we just return cost unobservables.
+        """
+        
+        B = []
+        P = []
+        X = []
+#        Z = []
+
+        for t in range(self.T):
+            for mkt in range(self.M):
+                B.extend(self.find_markups(t, mkt))
+                P.extend(self.prices[t][mkt][1:])
+                for j in range(self.J):
+                    X.append(self.cost_chars[j])
+#                    Z.append(self.make_IVs(t, mkt, j))
+        print(B)
+
+        Y = np.log(np.array(P) - np.array(B))
+        print(Y)
+        X = sm.add_constant(X)
+#        Z = sm.add_constant(Z)
+        print(X)
+        reg = sm.OLS(Y,X).fit()
+        print(reg.summary())
+        gamma = reg.params
+        om   = reg.resid
+
+        return om
+
     
 
+
+        
 
 np.random.seed(0)
 
@@ -344,13 +379,13 @@ num_time = 2
 num_mkts = 4
 num_prod = 5                               
                           
-params = [0.1, 1, 1, 1, 1, 1]    
-prices = 100*np.random.rand(num_time, num_mkts, num_prod)+5 
+params = [.99, 1, 1, 1, 1, 1]    
+prices = 100*np.random.rand(num_time, num_mkts, num_prod)+100
 
 for t in range(num_time):
     for m in range(num_mkts):
         prices[t][m][0] = 0 #OO has price normalized to 0
-print(prices)
+#print(prices)
 
 shares = np.random.rand(num_time, num_mkts, num_prod)
 
@@ -358,13 +393,13 @@ for t in range(num_time):
     shares[t] = shares[t]/shares[t].sum(axis=1)[:,None]
 
 product_chars = np.random.rand(num_prod-1,5)
-cost_chars = [ [ [ [] for j in range(num_prod)] for mkt in range(num_mkts)] for t in range(num_time)]
+cost_chars = np.random.rand(num_prod-1, 8)
 
 #In ownership, 0 index should not exist. 0 is to OO, and is owned by no firm
 ownership = [[1,2,3], [4]]
 regions   = [[0,1, 2,3]]
 
 foo = Moments(params, shares, prices, product_chars, cost_chars,
-              ownership, regions, NS=5)
+              ownership, regions, NS=200)
 
-print(foo.find_demand_unobs())    
+print(foo.find_cost_unobs())    
