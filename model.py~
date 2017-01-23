@@ -107,6 +107,10 @@ class Moments:
         elif P0 == "full":
             #y_i also varies, according to some emp. dist. 
             self.P0 = self.draw_full()
+        
+        #We compute the IVs
+        self.Z = self.make_IVs()
+
 
     def draw_normals(self):
         """
@@ -133,7 +137,7 @@ class Moments:
 
         return None
 
-    def make_IVs(self, t, mkt, j):
+    def make_z(self, t, mkt, j):
         """Takes a time, a market, and a product j,
            Returns vector of all prices of j in the same region as mkt, except mkt
         """
@@ -145,16 +149,30 @@ class Moments:
             if mkt in region:
                 R = region
                 break
-        for m in region:
+        for m in range(self.M):
             if m == mkt:
-                continue
-            else:
+                z.append(0)
+            elif m in R:
                 z.append(self.prices[t][m][j+1]) 
-    
+            else:
+                z.append(0)
+
         z.extend(self.prod_chars[j])
         z.extend(self.cost_chars[j])
         
         return z
+
+    def make_IVs(self):
+        """Produces array of exogenous instruments"""
+        Z = []
+
+        for t in range(self.T):
+            for mkt in range(self.M):
+                for j in range(self.J):
+                    Z.append(self.make_z(t, mkt, j))
+
+        return sm.add_constant(Z)
+
 
     def cond_choice_prob(self, delta, nu, t, mkt):
         """
@@ -202,8 +220,10 @@ class Moments:
                                                           
     def find_delta(self, t, mkt, tol=1e-5, max_iter=500):
         """Iterates contraction mapping until we find delta for market mkt"""
-
-        delta0 = np.zeros(self.J+1)
+        
+        #Initial guess suggested by Nevo
+        delta0 = np.log(self.mkt_shares[t])-np.log(self.mkt_shares[0])
+        print("SDFSF", len(delta0) - self.J)
         delta1 = np.ones(self.J+1)
 
         iter = 0
@@ -234,8 +254,6 @@ class Moments:
         #delta_jt, will be independent var. 
         Y = []
         X = []
-        #Hausman instruments
-        Z = []
 
         for t in range(self.T):
             for mkt in range(self.M):
@@ -243,14 +261,10 @@ class Moments:
                 Y.extend(delta) #more efficient than appending below           
                 for j in range(self.J):
                     x = np.append(self.prod_chars[j], self.prices[t][mkt][j+1])
-                    
                     X.append(x)
-                    Z.append(self.make_IVs(t, mkt, j))
 
         X = sm.add_constant(X)
-        Z = sm.add_constant(Z)
-        reg = gmm.IV2SLS(Y,X,Z).fit()
-#        print(reg.summary())
+        reg = gmm.IV2SLS(Y,X,self.Z).fit()
 
         beta = reg.params
         xi   = reg.resid
@@ -345,7 +359,6 @@ class Moments:
         B = []
         P = []
         X = []
-#        Z = []
 
         for t in range(self.T):
             for mkt in range(self.M):
@@ -353,34 +366,45 @@ class Moments:
                 P.extend(self.prices[t][mkt][1:])
                 for j in range(self.J):
                     X.append(self.cost_chars[j])
-#                    Z.append(self.make_IVs(t, mkt, j))
-        print(B)
-
         Y = np.log(np.array(P) - np.array(B))
-        print(Y)
         X = sm.add_constant(X)
-#        Z = sm.add_constant(Z)
-        print(X)
+
         reg = sm.OLS(Y,X).fit()
-        print(reg.summary())
         gamma = reg.params
         om   = reg.resid
 
-        return om
+        return gamma, om
 
-    
+    def find_Gj(self, params):
+        """Takes parameters,
+           Returns G_J to be minimized
+        """
 
+#        print(self.Z)
+        Phi0 = np.dot(np.transpose(self.Z), self.Z)
+#        print(Phi0)
 
+        Phi0inv = np.matrix(np.linalg.inv(Phi0))
+#        print(Phi0inv)
+
+        beta,  xi = self.find_demand_unobs()
+        gamma, om = self.find_cost_unobs()
+
+        W  = np.matrix(np.transpose([xi, om]))
+        Z  = np.matrix(self.Z)
+
+        return np.linalg.norm(W.T*Z*Phi0inv*Z.T*W)
         
 
+        
 np.random.seed(0)
 
 num_time = 2
 num_mkts = 4
-num_prod = 5                               
+num_prod = 5 #Number of products, including OO                               
                           
-params = [.99, 1, 1, 1, 1, 1]    
-prices = 100*np.random.rand(num_time, num_mkts, num_prod)+100
+params = [.95, 1, 1, 1, 1, 1]    
+prices = 100*np.random.rand(num_time, num_mkts, num_prod)+200
 
 for t in range(num_time):
     for m in range(num_mkts):
@@ -393,13 +417,13 @@ for t in range(num_time):
     shares[t] = shares[t]/shares[t].sum(axis=1)[:,None]
 
 product_chars = np.random.rand(num_prod-1,5)
-cost_chars = np.random.rand(num_prod-1, 8)
+cost_chars = np.random.rand(num_prod-1, 2)
 
 #In ownership, 0 index should not exist. 0 is to OO, and is owned by no firm
-ownership = [[1,2,3], [4]]
-regions   = [[0,1, 2,3]]
+ownership = [[1,2],[3], [4]]
+regions   = [[0,1], [2,3]]
 
 foo = Moments(params, shares, prices, product_chars, cost_chars,
-              ownership, regions, NS=500)
+              ownership, regions, NS=200)
 
-print(foo.find_cost_unobs())    
+print(foo.find_Gj(params))    
