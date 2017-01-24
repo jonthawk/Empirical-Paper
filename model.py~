@@ -222,7 +222,8 @@ class Moments:
         """Iterates contraction mapping until we find delta for market mkt"""
         
         #Initial guess suggested by Nevo
-        delta0 = np.log(self.mkt_shares[t])-np.log(self.mkt_shares[0])
+        delta0 = np.log(self.mkt_shares[t][mkt])-np.log(self.mkt_shares[t][mkt][0])
+
         print("SDFSF", len(delta0) - self.J)
         delta1 = np.ones(self.J+1)
 
@@ -307,7 +308,7 @@ class Moments:
            Returns matrix of share/price derivatives
         """
                     
-        totals = np.zeros(self.J+1)
+        totals = np.zeros((self.J+1, self.J+1))
         for i in range(self.NS):
             totals = np.add(totals, self.compute_cond_derivs(delta, self.P0[t][mkt][i], t, mkt))
         derivs = totals/self.NS

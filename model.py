@@ -308,7 +308,7 @@ class Moments:
            Returns matrix of share/price derivatives
         """
                     
-        totals = np.zeros(self.J+1)
+        totals = np.zeros((self.J+1, self.J+1))
         for i in range(self.NS):
             totals = np.add(totals, self.compute_cond_derivs(delta, self.P0[t][mkt][i], t, mkt))
         derivs = totals/self.NS
@@ -330,7 +330,6 @@ class Moments:
             for j in firm: #Iterate through all products owned by firm
                 for r in firm:
                     #j-1 'trims' the first column and row
-                    Delta[j-1][r-1] = 1
                     Delta[j-1][r-1] = -derivs[j][r]
         return Delta
 
