@@ -149,14 +149,13 @@ class Moments:
             if mkt in region:
                 R = region
                 break
-        for m in range(self.M):
+        for m in R:
+            avg = 0
             if m == mkt:
-                z.append(0)
-            elif m in R:
-                z.append(self.prices[t][m][j+1]) 
+                continue
             else:
-                z.append(0)
-
+                avg += self.prices[t][m][j+1]
+        z.append(avg/len(R))
         z.extend(self.prod_chars[j])
         z.extend(self.cost_chars[j])
         
@@ -218,13 +217,11 @@ class Moments:
         delta1 = delta + np.log(self.mkt_shares[t][mkt]) - np.log(self.simulate_shares(delta, t, mkt))
         return delta1
                                                           
-    def find_delta(self, t, mkt, tol=1e-5, max_iter=500):
+    def find_delta(self, t, mkt, tol=1e-6, max_iter=500):
         """Iterates contraction mapping until we find delta for market mkt"""
         
         #Initial guess suggested by Nevo
         delta0 = np.log(self.mkt_shares[t][mkt])-np.log(self.mkt_shares[t][mkt][0])
-
-        print("SDFSF", len(delta0) - self.J)
         delta1 = np.ones(self.J+1)
 
         iter = 0
@@ -381,7 +378,8 @@ class Moments:
         """
 
 #        print(self.Z)
-        Phi0 = np.dot(np.transpose(self.Z), self.Z)
+        Z = np.concatenate((self.Z, self.Z))
+        Phi0 = np.dot(np.transpose(Z), Z)
 #        print(Phi0)
 
         Phi0inv = np.matrix(np.linalg.inv(Phi0))
@@ -390,10 +388,11 @@ class Moments:
         beta,  xi = self.find_demand_unobs()
         gamma, om = self.find_cost_unobs()
 
-        W  = np.matrix(np.transpose([xi, om]))
-        Z  = np.matrix(self.Z)
-
-        return np.linalg.norm(W.T*Z*Phi0inv*Z.T*W)
+        W  = np.matrix(np.concatenate((xi, om)))
+        Z  = np.matrix(Z)
+        #Transposes are nonstandard, comp. to Nevo, but correct. 
+        #linalg.norm converts a 1x1 matrix into scalar, kludge
+        return np.linalg.norm(W*Z*Phi0inv*Z.T*W.T)
         
 
         
@@ -403,8 +402,8 @@ num_time = 2
 num_mkts = 4
 num_prod = 5 #Number of products, including OO                               
                           
-params = [.95, 1, 1, 1, 1, 1]    
-prices = 100*np.random.rand(num_time, num_mkts, num_prod)+200
+params = [.5, 1, 1, 1, 1, 1]    
+prices = 10*np.random.rand(num_time, num_mkts, num_prod)
 
 for t in range(num_time):
     for m in range(num_mkts):
