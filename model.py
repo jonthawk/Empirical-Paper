@@ -27,14 +27,6 @@ import numpy as np
 import statsmodels.api as sm
 import statsmodels.sandbox.regression.gmm as gmm
 
-import csv
-
-from scipy.optimize import minimize
-
-
-def convert_to_floats(A):
-    B = [ [float(e) for e in row] for row in A]
-    return B
 
 class Moments:
     """A market is initialized with:
@@ -78,23 +70,24 @@ class Moments:
 
     """
 
-    def __init__(self, Data, K, C,
+    def __init__(self, params,                  
+                 market_shares, prices, 
+                 product_chars, cost_chars, 
                  ownership, regions,
-                 non_rand_chars=[], NS=500):
+                 non_rand_chars=[], P0='normals', NS=500):
 
-        self.Data = Data
-        
         #Number of time periods
-        self.T = int(max(ob[0] for ob in Data)) + 1 #0-indexing
+        self.T = len(market_shares)
         #Number of markets (cities)
-        self.M = int(max(ob[1] for ob in Data)) + 1
+        self.M = len(market_shares[0])
         #Number of products (not counting outside opt.)
-        self.J = int(max(ob[2] for ob in Data)) + 1 
+        self.J = len(market_shares[0][0])-1
         #Number of firms
         self.F = len(ownership)
         #Number of demand-relevant characteristics
-        self.K = K
+        self.K = len(product_chars[0])
         #Number of cost-relevant characteristics
+<<<<<<< HEAD
         self.C = C
 
         #Now, we fold Data into data[t][mkt][j]
@@ -120,8 +113,15 @@ class Moments:
         #Coefficients on K product chars and price
         self.params     = [0.4, 3.1, 2.6, 1.9, 1.4, 1]
         self.mkt_shares = shares
+=======
+        self.C = len(cost_chars[0])
+
+        #Coefficients on K product chars and price
+        self.params     = params
+        self.mkt_shares = market_shares
+>>>>>>> parent of a6b84c1... Avoided duplication of delta computation
         self.prices     = prices
-        self.prod_chars = prod_chars
+        self.prod_chars = product_chars
         self.cost_chars = cost_chars
         self.ownership  = ownership
         self.regions    = regions
@@ -130,6 +130,7 @@ class Moments:
 
         #We draw the nu's for T*NS consumers
         #P0[consumer] = [y_i, nu^1_i, ... nu^K_i]
+<<<<<<< HEAD
         self.normals = self.draw_normals()
         self.P0      = self.compute_P0(self.params)
         """        
@@ -140,6 +141,13 @@ class Moments:
                       for mkt in range(self.M)]
                     for t in range(self.T)]
                     """
+=======
+        if P0 == "normals":
+            self.P0 = self.draw_normals()
+        elif P0 == "full":
+            #y_i also varies, according to some emp. dist. 
+            self.P0 = self.draw_full()
+>>>>>>> parent of a6b84c1... Avoided duplication of delta computation
         
         #We compute the IVs
         self.Z = self.make_IVs()
@@ -154,15 +162,27 @@ class Moments:
         Note: If we want non-rand chars, this function will need to be updated
         """
 
-        P0 = np.array([np.random.normal(size=(self.M, self.NS, self.T))
+
+        P0 = np.array([np.random.normal(scale=self.params[k], size=(self.M, self.NS, self.T))
               for k in range(self.K+1)])
         P0 = np.swapaxes(P0, 0, 3)
 
         return P0
 
+<<<<<<< HEAD
     def compute_P0(self, params):
         """Takes parameters, produces new P0 by adjusting variances"""
         """NOTE: This means params are variances, not std"""
+=======
+    def draw_full(self):
+        """
+        Under this specification,
+        We might, for example, have covariance between taste shocks.
+        This would, of course, entail further modifications to, e.g. params. 
+        """
+
+        return None
+>>>>>>> parent of a6b84c1... Avoided duplication of delta computation
 
         return [ [ [ [self.normals[t][mkt][i][k]*params[k] for k in range(self.K+1)]
                      for i in range(self.NS)]
@@ -261,14 +281,14 @@ class Moments:
             dist = np.linalg.norm(delta0 - delta1)
             delta0 = delta1
             
-            if iter % 100 == 0:
+            if iter % 20 == 0:
                 print(iter, ": ", dist)
         #Normalize d_OO = 0
         delta0 = delta0 - delta0[0]
 
         return delta0 
 
-    def find_demand_unobs(self, full_deltas):
+    def find_demand_unobs(self):
         """This function computes mean tastes (beta) and demand unobservables (xi),
         """
 
@@ -282,7 +302,7 @@ class Moments:
 
         for t in range(self.T):
             for mkt in range(self.M):
-                delta = full_deltas[t][mkt][1:]
+                delta = self.find_delta(t, mkt)[1:]
                 Y.extend(delta) #more efficient than appending below           
                 for j in range(self.J):
                     x = np.append(self.prod_chars[j], self.prices[t][mkt][j+1])
@@ -357,12 +377,12 @@ class Moments:
                     Delta[j-1][r-1] = -derivs[j][r]
         return Delta
 
-    def find_markups(self, t, mkt, full_deltas):
+    def find_markups(self, t, mkt):
         """Takes a market,
            Returns the J-vector of markups
         """
         
-        delta  = full_deltas[t][mkt]
+        delta  = self.find_delta(t, mkt)
         Delta  = self.make_Delta(delta, t, mkt)
         #We trim the share of the OO
         shares = self.simulate_shares(delta, t, mkt)[1:]
@@ -370,7 +390,7 @@ class Moments:
         b = np.dot(invD, shares)
         return b
 
-    def find_cost_unobs(self, delta):
+    def find_cost_unobs(self):
         """This function computes cost parameters and unobservables
            using Hausman instruments?"""
 
@@ -385,115 +405,70 @@ class Moments:
 
         for t in range(self.T):
             for mkt in range(self.M):
-                B.extend(self.find_markups(t, mkt, delta))
+                B.extend(self.find_markups(t, mkt))
                 P.extend(self.prices[t][mkt][1:])
                 for j in range(self.J):
                     X.append(self.cost_chars[j])
-        
-        Y = np.zeros((len(B)))
-        for i in range(len(Y)):
-            if P[i] > B[i]:
-                Y[i] = np.log(P[i] - B[i])
-            else:
-                Y[i] = -1e3
-
+        Y = np.log(np.array(P) - np.array(B))
         X = sm.add_constant(X)
+
         reg = sm.OLS(Y,X).fit()
         gamma = reg.params
         om   = reg.resid
 
         return gamma, om
 
-    def find_Gj(self, theta):
+    def find_Gj(self, params):
         """Takes parameters,
            Returns G_J to be minimized
         """
-        
-        if min(theta) < 0 or max(theta) > 10:
-            return 1e10
-        
-        self.params = theta
-        self.P0 = self.compute_P0(theta)
+
+#        print(self.Z)
         Z = np.concatenate((self.Z, self.Z))
         Phi0 = np.dot(np.transpose(Z), Z)
-        Phi0inv = np.matrix(np.linalg.inv(Phi0))
+#        print(Phi0)
 
-        delta = [[self.find_delta(t,mkt) for mkt in range(self.M)]
-                 for t in range(self.T)]
-        beta,  xi = self.find_demand_unobs(delta)
-        gamma, om = self.find_cost_unobs(delta)
+        Phi0inv = np.matrix(np.linalg.inv(Phi0))
+#        print(Phi0inv)
+
+        beta,  xi = self.find_demand_unobs()
+        gamma, om = self.find_cost_unobs()
 
         W  = np.matrix(np.concatenate((xi, om)))
         Z  = np.matrix(Z)
         #Transposes are nonstandard, comp. to Nevo, but correct. 
         #linalg.norm converts a 1x1 matrix into scalar, kludge
-        obj = np.linalg.norm(W*Z*Phi0inv*Z.T*W.T)
-        print(self.params, " : ", obj)
-        return obj 
-    
-    def find_params(self, unobs=True):
-        """Returns theta, beta, gamma, minimizing Gj
-           If unobs = True, then return xi, om as well
-        """
+        return np.linalg.norm(W*Z*Phi0inv*Z.T*W.T)
         
-        initial  = self.params
-        minimum  = minimize(self.find_Gj, initial)
-        thetahat = minimum.x
 
-        self.params = thetahat
-        beta,  xi = self.find_demand_unobs()
-        gamma, om = self.find_cost_unobs()
-
-        if unobs:
-            return thetahat, beta, gamma, xi, om
-        else:
-            return thetahat, beta, gamma
-
-    def write_estimates(self):
-        """Writes estimates to file"""
-        thetahat, beta, gamma, xi, om = self.find_params()
-    
-        print("T: ", thetahat)
-        print("B: ", beta)
-        print("G: ", gamma)
-        print(xi)
-        print(om)
-
-        with open("Estimates.csv", 'w', newline='') as csvfile:
-            writer = csv.writer(csvfile)
-            T = ["ThetaHat"]
-            T.extend(thetahat)
-            B = ["BetaHat"]
-            B.extend(beta)
-            G = ["GammaHat"]
-            G.extend(gamma)
-            writer.writerow(T)
-            writer.writerow(B)
-            writer.writerow(G)
-        with open("Xi.csv", 'w', newline='') as csvfile:
-            writer = csv.writer(csvfile)
-            writer.writerow(xi)
-        with open("Om.csv", 'w', newline='') as csvfile:
-            writer = csv.writer(csvfile)
-            writer.writerow(om)
-
+        
 np.random.seed(0)
 
-ownership = [[0,1,2,3],
-             [4,5],
-             [6,7,8],
-             [9]]
-regions   = [range(100)]
+num_time = 2
+num_mkts = 4
+num_prod = 5 #Number of products, including OO                               
+                          
+params = [.5, 1, 1, 1, 1, 1]    
+prices = 10*np.random.rand(num_time, num_mkts, num_prod)
 
-Data = []
-with open('small_test_data.csv', 'r') as f:
-    reader = csv.reader(f)
-    for row in reader:
-        Data.append(row)
+for t in range(num_time):
+    for m in range(num_mkts):
+        prices[t][m][0] = 0 #OO has price normalized to 0
+#print(prices)
 
-Data = convert_to_floats(Data)
+shares = np.random.rand(num_time, num_mkts, num_prod)
 
-foo = Moments(Data, 5, 2,
+for t in range(num_time):
+    shares[t] = shares[t]/shares[t].sum(axis=1)[:,None]
+
+product_chars = np.random.rand(num_prod-1,5)
+cost_chars = np.random.rand(num_prod-1, 2)
+
+#In ownership, 0 index should not exist. 0 is to OO, and is owned by no firm
+ownership = [[1,2],[3], [4]]
+regions   = [[0,1], [2,3]]
+
+foo = Moments(params, shares, prices, product_chars, cost_chars,
               ownership, regions, NS=200)
 
-print(foo.write_estimates())    
+print(foo.find_Gj(params))    
